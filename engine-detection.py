@@ -2,22 +2,37 @@ import chess
 import chess.pgn
 import chess.engine
 import pandas as pd
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 import os
 import sys
+import pickle
+import time
 
 sys.setrecursionlimit(30000)
 
-PGN_PATH = "pgn_repo\chess_com_games_2024-06-15.pgn"
+PGN_PATH = "D:\lichess_db_standard_rated_2024-05.pgn"
 ENGINE_PATH = engine_path = "stockfish\stockfish-windows-x86-64-avx2.exe"
 NUM_WORKERS = os.cpu_count()
+CACHE_PATH = 'engine_cache.pkl'
+
+# Load or initialize the engine cache
+try:
+    with open(CACHE_PATH, 'rb') as f:
+        engine_cache = pickle.load(f)
+
+except FileNotFoundError:
+    engine_cache = {}
 
 # Create empty DataFrames to store the gamevise data
 gamewise_engine_move_percentages = pd.DataFrame(columns=["game", "white_id", "black_id" , "white_engine_move_percentage", "black_engine_move_percentage"])
 
 def evaluate_board(engine, board):
     """Evaluate the board using the chess engine and cache results."""
-    result = engine.analyse(board, chess.engine.Limit(time=0.1))
+    board_fen = board.fen()
+    if board_fen in engine_cache:
+        return engine_cache[board_fen]
+    result = engine.analyse(board, chess.engine.Limit(depth=10))
+    engine_cache[board_fen] = result['pv'][0]
     return result['pv'][0]
 
 def analyze_game(game):
@@ -47,20 +62,25 @@ def analyze_game(game):
 def game_generator(file_path):
     """Generator to yield games from a PGN file."""
     with open(file_path) as pgn:
-        while True:
+        # while True:
+        for _ in range(1500):
             game = chess.pgn.read_game(pgn)
             if game is None:
                 break
             yield game
 
 def main():
-    results = []
-    with ProcessPoolExecutor(max_workers=NUM_WORKERS) as executor:
-        for game, white_id, black_id, white_engine_move_percentage, black_engine_move_percentage in executor.map(analyze_game, game_generator(PGN_PATH)):
-            # Append the engine move percentages to the gamewise_engine_move_percentages DataFrame
-            gamewise_engine_move_percentages.loc[len(gamewise_engine_move_percentages)] = [game, white_id, black_id, white_engine_move_percentage, black_engine_move_percentage]
+    start_time = time.time()
+    with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+        for result in executor.map(analyze_game, game_generator(PGN_PATH)):
+            gamewise_engine_move_percentages.loc[len(gamewise_engine_move_percentages)] = result
+
+    # Save the updated engine cache
+    with open(CACHE_PATH, 'wb') as f:
+        pickle.dump(engine_cache, f)
 
     print(gamewise_engine_move_percentages)
+    print("--- %s seconds ---" % (time.time() - start_time))
 
 if __name__ == "__main__":
     main()
