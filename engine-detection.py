@@ -26,23 +26,27 @@ except FileNotFoundError:
 # Create empty DataFrames to store the gamevise data
 gamewise_engine_move_percentages = pd.DataFrame(columns=["game", "white_id", "black_id" , "white_engine_move_percentage", "black_engine_move_percentage"])
 
-def evaluate_board(engine, board):
+def evaluate_board(engine, board, cache_results=True):
     """Evaluate the board using the chess engine and cache results."""
     board_fen = board.fen()
     if board_fen in engine_cache:
         return engine_cache[board_fen]
     result = engine.analyse(board, chess.engine.Limit(depth=10))
-    engine_cache[board_fen] = result['pv'][0]
+    if cache_results:
+        engine_cache[board_fen] = result['pv'][0]
     return result['pv'][0]
 
 def analyze_game(game):
     """Analyze a single game and compute statistics to assess engine use."""
     board = game.board()
+
     white_engine_move_count = 0
     black_engine_move_count = 0
     with chess.engine.SimpleEngine.popen_uci(ENGINE_PATH) as engine:
         for move in game.mainline_moves():
-            best_move = evaluate_board(engine, board)
+
+            # Cache results only if first 15 moves
+            best_move = evaluate_board(engine, board, cache_results=board.fullmove_number <= 15)
             move_quality = 1 if move == best_move else 0
 
             # Increment the engine move count for white and black
@@ -84,7 +88,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
