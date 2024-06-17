@@ -24,7 +24,7 @@ except FileNotFoundError:
     engine_cache = {}
 
 # Create empty DataFrames to store the gamevise data
-gamewise_engine_move_percentages = pd.DataFrame(columns=["game", "white_id", "black_id" , "white_engine_move_percentage", "black_engine_move_percentage"])
+gamewise_engine_move_percentages = pd.DataFrame(columns=["game","date", "time_control", "white_id", "white_elo", "white_engine_move_percentage","black_id", "black_elo", "black_engine_move_percentage", "result"])
 
 def evaluate_board(engine, board, cache_results=True):
     """Evaluate the board using the chess engine and cache results."""
@@ -46,7 +46,7 @@ def analyze_game(game):
         for move in game.mainline_moves():
 
             # Cache results only if first 15 moves
-            best_move = evaluate_board(engine, board, cache_results=board.fullmove_number <= 15)
+            best_move = evaluate_board(engine, board, cache_results=board.fullmove_number <= 20)
             move_quality = 1 if move == best_move else 0
 
             # Increment the engine move count for white and black
@@ -60,18 +60,62 @@ def analyze_game(game):
     white_engine_move_percentage = white_engine_move_count / game.end().board().fullmove_number
     black_engine_move_percentage = black_engine_move_count / game.end().board().fullmove_number
 
-    return game, game.headers["White"], game.headers["Black"], white_engine_move_percentage, black_engine_move_percentage
+    return game, game.headers["Date"], game.headers["TimeControl"] ,game.headers["White"], \
+        game.headers["WhiteElo"], white_engine_move_percentage, game.headers["Black"], game.headers["BlackElo"], black_engine_move_percentage, game.headers["Result"]
 
 
 def game_generator(file_path):
     """Generator to yield games from a PGN file."""
     with open(file_path) as pgn:
         # while True:
-        for _ in range(1500):
+        for _ in range(5000):
             game = chess.pgn.read_game(pgn)
             if game is None:
                 break
             yield game
+
+def get_user_data_from_game_data(df):
+    """
+    Create a dictionary of dataframes, each dataframe filtered for games played by a specific player
+    and formatted to show user-specific details including the result from the player's perspective.
+    
+    Parameters:
+        df (pd.DataFrame): The original dataframe containing chess games.
+        
+    Returns:
+        dict: A dictionary where keys are player IDs and values are the user-specific dataframes.
+    """
+    # Prepare empty DataFrame to collect all player-specific rows
+    all_games_user_perspective = pd.DataFrame()
+
+    # Create a set of all unique player IDs from both 'white_id' and 'black_id'
+    all_players = pd.concat([df['white_id'], df['black_id']]).unique()
+
+    for player_id in all_players:
+        # Filter games for the current player as white
+        games_as_white = df[df['white_id'] == player_id].copy()
+        games_as_white['user'] = player_id
+        games_as_white['elo'] = games_as_white['white_elo']
+        games_as_white['engine_move_percent'] = games_as_white['white_engine_move_percentage']
+        games_as_white['user_result'] = games_as_white['result'].map({'1-0': 'Win', '0-1': 'Loss', '1/2-1/2': 'Draw'})
+
+        # Filter games for the current player as black
+        games_as_black = df[df['black_id'] == player_id].copy()
+        games_as_black['user'] = player_id
+        games_as_black['elo'] = games_as_black['black_elo']
+        games_as_black['engine_move_percent'] = games_as_black['black_engine_move_percentage']
+        games_as_black['user_result'] = games_as_black['result'].map({'1-0': 'Loss', '0-1': 'Win', '1/2-1/2': 'Draw'})
+
+        # Combine both DataFrames
+        user_games = pd.concat([games_as_white, games_as_black], ignore_index=True)
+
+        # Select only the necessary columns to match the desired output format
+        user_specific_df = user_games[['date', 'user', 'elo', 'time_control', 'engine_move_percent', 'user_result']]
+
+        # Append to the final DataFrame
+        all_games_user_perspective = pd.concat([all_games_user_perspective, user_specific_df], ignore_index=True)
+    
+    return all_games_user_perspective
 
 def main():
     start_time = time.time()
@@ -82,8 +126,14 @@ def main():
     # Save the updated engine cache
     with open(CACHE_PATH, 'wb') as f:
         pickle.dump(engine_cache, f)
+    
+    print("--- %s seconds ---" % (time.time() - start_time))
 
-    print(gamewise_engine_move_percentages)
+    userwise_game_data = get_user_data_from_game_data(gamewise_engine_move_percentages)
+    # Save both DataFrames to CSV files
+    userwise_game_data.to_csv('userwise_game_data.csv', index=False)
+    gamewise_engine_move_percentages.to_csv('gamewise_engine_move_percentages.csv', index=False)
+
     print("--- %s seconds ---" % (time.time() - start_time))
 
 if __name__ == "__main__":
