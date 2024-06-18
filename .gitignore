@@ -166,3 +166,10 @@ cython_debug/
 
 # stockfish folder
 stockfish/
+
+#pickle dump files
+*.pkl
+
+# csv files
+*.csv
+
