@@ -169,3 +169,7 @@ stockfish/
 
 #pickle dump files
 *.pkl
+
+# csv files
+*.csv
+
